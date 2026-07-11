@@ -1468,19 +1468,25 @@ async function fetchWorker(q,loc,radius){
   if(!r.ok) throw new Error('Worker HTTP '+r.status);
   const d=await r.json();
   lastWorkerDiag={sources:d.sources||{}, errors:d.errors||{}, total:d.total, adzuna_configured:d.adzuna_configured, usajobs_configured:d.usajobs_configured, jooble_configured:d.jooble_configured};
-  return (d.jobs||[]).map((j,i)=>({
-    _id:'w'+i,_src:j.source||'Worker',
-    job_title:j.title||'',employer_name:j.company||'Unknown',
-    job_city:(j.location||'').split(',')[0]?.trim()||(j.remote?'Remote':''),
-    job_state:(j.location||'').split(',')[1]?.trim()||'',
-    job_location:j.location||'',company_location:j.company_location||j.employer_location||'',
-    job_description:j.description||'',job_apply_link:j.apply_url||'',
-    job_employment_type:(j.type||'').toLowerCase().includes('full')?'FULLTIME':'PARTTIME',
-    job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
-    job_salary_period:j.salary_min?(j.salary_period|| (j.salary_min<1000?'HOUR':'YEAR')):null,
-    employer_company_rating:null,job_apply_is_direct:true,
-    job_publishers:[{name:j.source||'Worker'}],remote:j.remote||false,_repost:0,
-  }));
+  return (d.jobs||[]).map((j,i)=>{
+    const location=typeof j.location==='string'?j.location:'';
+    const company=typeof j.company==='string'?j.company:'Unknown';
+    const source=typeof j.source==='string'?j.source:'Worker';
+    const type=String(j.type||'').toLowerCase();
+    return {
+      _id:'w'+i,_src:source,
+      job_title:typeof j.title==='string'?j.title:'',employer_name:company,
+      job_city:location.split(',')[0]?.trim()||(j.remote?'Remote':''),
+      job_state:location.split(',')[1]?.trim()||'',
+      job_location:location,company_location:typeof j.company_location==='string'?j.company_location:'',
+      job_description:typeof j.description==='string'?j.description:'',job_apply_link:typeof j.apply_url==='string'?j.apply_url:'',
+      job_employment_type:type.includes('full')?'FULLTIME':'PARTTIME',
+      job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
+      job_salary_period:j.salary_min?(j.salary_period|| (j.salary_min<1000?'HOUR':'YEAR')):null,
+      employer_company_rating:null,job_apply_is_direct:true,
+      job_publishers:[{name:source}],remote:j.remote===true,_repost:0,
+    };
+  });
 }
 
 function addSource(plan,label,fn){
