@@ -1434,7 +1434,7 @@ function stripNeg(q){
 }
 async function fetchJSearch(q,loc,type,remote,radius){
   const key=K('kr'); if(!key) throw new Error('no-key');
-  const cleanQ=stripNeg(q)+(loc?' in '+loc:'');
+  const cleanQ=(q?stripNeg(q):'')+(loc?' in '+loc:'');
   const p=new URLSearchParams({query:cleanQ,page:'1',num_pages:'3',date_posted:'week'});
   if(type) p.set('employment_types',type.toUpperCase());
   if(remote==='remote') p.set('job_requirements','remote_jobs_only');
@@ -1559,6 +1559,7 @@ function emptyResultsMessage(){
 async function fetchViaClaude(sourceKey, q, loc, apiKey, radius){
   if(!apiKey) return [];
   const cfg=getCountryConfig();
+  const searchTerm=q||'current job openings';
   const usesMiles=['us','gb'].includes(getCountry());
   const unit=usesMiles?'miles':'km';
   const radiusPhrase=radius?' within '+radius+' '+unit+' of '+loc:(loc?' near '+loc:'');
@@ -1569,11 +1570,12 @@ async function fetchViaClaude(sourceKey, q, loc, apiKey, radius){
   };
   const s=sourceMap[sourceKey];
   if(!s||!s.site) return [];
-  return await claudeSearchJobs('Search for "'+q+'" jobs'+radiusPhrase+' in '+cfg.label+' on '+s.site+'. Prioritize listings actually located near the search location, not remote roles unless the user asked for remote. When a remote listing belongs to a company with an office, facility, headquarters, or operating footprint near the search location, return that company location so Kindling can keep it as a local-company result.', apiKey, s.label);
+  return await claudeSearchJobs('Search for "'+searchTerm+'" jobs'+radiusPhrase+' in '+cfg.label+' on '+s.site+'. Prioritize listings actually located near the search location, not remote roles unless the user asked for remote. When a remote listing belongs to a company with an office, facility, headquarters, or operating footprint near the search location, return that company location so Kindling can keep it as a local-company result.', apiKey, s.label);
 }
 async function fetchStateCommunityBoards(q, loc, apiKey, radius){
   const cfg=getCountryConfig();
   if(!apiKey||!cfg.hasStateCommunity) return [];
+  const searchTerm=q||'current job openings';
   const state=detectUSState(loc);
   const usesMiles=['us','gb'].includes(getCountry());
   const unit=usesMiles?'miles':'km';
@@ -1586,15 +1588,15 @@ async function fetchStateCommunityBoards(q, loc, apiKey, radius){
   const prompts=[
     {
       label:'State Boards',
-      prompt:'Search public state workforce job boards for "'+q+'" jobs'+radiusPhrase+'. Prioritize '+boardList+'. Include only current postings with direct apply URLs. Prefer employer, state, NLx, CareerOneStop, or workforce-agency pages over private repost aggregators.'
+      prompt:'Search public state workforce job boards for "'+searchTerm+'" jobs'+radiusPhrase+'. Prioritize '+boardList+'. Include only current postings with direct apply URLs. Prefer employer, state, NLx, CareerOneStop, or workforce-agency pages over private repost aggregators.'
     },
     {
       label:'Community Boards',
-      prompt:'Search local community and public workforce boards for "'+q+'" jobs'+radiusPhrase+'. Prioritize '+localTargets+' Exclude Craigslist, Facebook groups, Discord, login-only boards, and stale repost mirrors. Include only current postings with direct apply URLs.'
+      prompt:'Search local community and public workforce boards for "'+searchTerm+'" jobs'+radiusPhrase+'. Prioritize '+localTargets+' Exclude Craigslist, Facebook groups, Discord, login-only boards, and stale repost mirrors. Include only current postings with direct apply URLs.'
     },
     {
       label:'Local Job Discovery',
-      prompt:'Find current "'+q+'" job listings within '+(radius||'50')+' '+unit+' of '+loc+'. Use Lensa, The Big Jobsite, and direct employer career pages as discovery sources, but prefer a direct employer apply URL when available. Keep only postings whose job location is explicitly in Brunswick, Glynn County, Coastal Georgia, Savannah, or another city inside the requested radius. Do not return nationwide or generic United States listings.'
+      prompt:'Find current "'+searchTerm+'" job listings within '+(radius||'50')+' '+unit+' of '+loc+'. Use Lensa, The Big Jobsite, and direct employer career pages as discovery sources, but prefer a direct employer apply URL when available. Keep only postings whose job location is explicitly in Brunswick, Glynn County, Coastal Georgia, Savannah, or another city inside the requested radius. Do not return nationwide or generic United States listings.'
     }
   ];
   const results=await Promise.allSettled(prompts.map(p=>claudeSearchJobs(p.prompt,apiKey,p.label)));
@@ -1603,6 +1605,7 @@ async function fetchStateCommunityBoards(q, loc, apiKey, radius){
 async function fetchLocalEmployers(q, loc, apiKey, radius){
   const cfg=getCountryConfig();
   if(!apiKey || !cfg.hasLocalRegistry || !isBrunswickArea(loc)) return [];
+  const searchTerm=q||'current job openings';
   // If radius specified and small (<25mi), only hit Brunswick employers (skip Savannah)
   const brunswickOnly=radius&&parseInt(radius)<25;
   const employers=brunswickOnly
@@ -1610,7 +1613,7 @@ async function fetchLocalEmployers(q, loc, apiKey, radius){
     : LOCAL_EMPLOYERS.slice(0,6);
   const results=await Promise.allSettled(
     employers.map(e=>claudeSearchJobs(
-      'Search '+e.careers+' for current job openings matching "'+q+'". Include roles in Brunswick, Savannah, or coastal Georgia.',
+      'Search '+e.careers+' for '+searchTerm+' openings. Include roles in Brunswick, Savannah, or coastal Georgia.',
       apiKey, e.name, e
     ))
   );
@@ -1795,14 +1798,15 @@ async function copyWorker(){
 // MAIN SEARCH
 // ═══════════════════════════════════════════════════════════════════════
 async function doSearch(){
-  const q=document.getElementById('s-q').value.trim();
+  const rawQ=document.getElementById('s-q').value.trim();
+  const q=rawQ==='*'?'':rawQ;
   const loc=document.getElementById('s-loc').value.trim();
   const type=document.getElementById('s-type').value;
   const remote=document.getElementById('s-remote').value;
   const radius=document.getElementById('s-radius')?.value||'';
   const maxRisk=document.getElementById('s-risk').value;
   const etypeFilter=document.getElementById('s-etype').value;
-  if(!q){ alert('Enter a job title or click a quick-search preset.'); return; }
+  if(!q&&rawQ!=='*'){ alert('Enter a job title, use * for all jobs, or click a quick-search preset.'); return; }
 
   const a=K('ka');
   lastWorkerDiag=null;
