@@ -258,6 +258,7 @@ body::before{
 }
 .card-company{font-size:.85rem;color:var(--kindling);font-weight:500}
 .card-location{font-size:.78rem;color:var(--stone);margin-top:.2rem;display:flex;align-items:center;gap:.3rem}
+.locality-note{font-size:.72rem;color:var(--kindling);margin-top:.45rem;line-height:1.35}
 
 .card-badge{
   flex-shrink:0;padding:.3rem .7rem;border-radius:20px;
@@ -329,6 +330,7 @@ body::before{
 .tag.etype-gov-edu{background:rgba(33,150,243,.1);color:#90caf9;border:1px solid rgba(33,150,243,.2)}
 .tag.etype-direct{background:rgba(76,175,80,.08);color:#81c784;border:1px solid rgba(76,175,80,.15)}
 .tag.etype-local{background:rgba(232,98,42,.12);color:var(--ember);border:1px solid rgba(232,98,42,.25);font-weight:600}
+.tag.locality{background:rgba(232,98,42,.1);color:var(--kindling);border:1px solid rgba(232,98,42,.2)}
 
 .apply-btn{
   background:none;border:1px solid rgba(232,98,42,.4);color:var(--ember);
@@ -497,7 +499,7 @@ body::before{
 
     <div class="sidebar-foot">
       <div id="dot-status">Setup: <span id="setup-lbl">not configured</span></div>
-      <a href="https://github.com/Dinadeyohvsgi/kindling" target="_blank" rel="noopener">GitHub ↗</a>
+      <a href="https://github.com/CosmicIndustries/kindling" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </aside>
 
@@ -507,7 +509,7 @@ body::before{
     <section class="view active" id="view-search">
       <div class="hero">
         <h2>Find employers that <em>keep</em> their people.</h2>
-        <p>Kindling scores every employer against BLS JOLTS turnover data, repost frequency, salary floors, and description red flags — then ranks safest first. Credentialed healthcare and travel roles are filtered automatically.</p>
+        <p>Kindling scores every employer against BLS JOLTS turnover data, repost frequency, salary floors, and description red flags — then puts local fit ahead of generic remote volume. Remote roles stay in the mix when the company has a nearby footprint. Credentialed healthcare and travel roles are filtered automatically.</p>
 
         <div class="search-card">
           <div class="search-row" style="grid-template-columns:1fr 2fr 1.3fr auto">
@@ -620,6 +622,7 @@ body::before{
       <div class="summary" id="summary">
         <div><div class="summary-count" id="sm-total">0<small>results</small></div></div>
         <div class="summary-breakdown">
+          <div class="sb-item"><span class="sb-dot" style="background:var(--kindling);box-shadow:0 0 6px var(--kindling)"></span><span><strong id="sm-local">0</strong> local fit</span></div>
           <div class="sb-item"><span class="sb-dot safe"></span><span><strong id="sm-safe">0</strong> stable</span></div>
           <div class="sb-item"><span class="sb-dot caution"></span><span><strong id="sm-med">0</strong> caution</span></div>
           <div class="sb-item"><span class="sb-dot danger"></span><span><strong id="sm-high">0</strong> high risk</span></div>
@@ -630,7 +633,8 @@ body::before{
 
       <div class="sort-bar" id="sort-bar">
         <span class="sort-label">Sort:</span>
-        <button class="sbtn on" onclick="sortBy('risk')" id="sb-risk">Churn Risk</button>
+        <button class="sbtn on" onclick="sortBy('locality')" id="sb-local">Local fit</button>
+        <button class="sbtn" onclick="sortBy('risk')" id="sb-risk">Churn Risk</button>
         <button class="sbtn" onclick="sortBy('salary')" id="sb-sal">Salary ↓</button>
         <button class="sbtn" onclick="sortBy('rating')" id="sb-rat">Rating</button>
         <button class="sbtn" onclick="sortBy('repost')" id="sb-rep">Reposts ↑</button>
@@ -840,7 +844,7 @@ const STATE_BOARD_HINTS={
 };
 function detectUSState(loc){
   const l=(loc||'').toLowerCase();
-  const abbr=((loc||'').match(/,\s*([A-Za-z]{2})(?:\s|$)/)||[])[1]?.toLowerCase();
+  const abbr=((loc||'').match(/(?:,|\s)\s*([A-Za-z]{2})(?:\s|$)/)||[])[1]?.toLowerCase();
   if(abbr&&US_STATE_NAMES[abbr]) return {abbr,label:US_STATE_NAMES[abbr],boards:STATE_BOARD_HINTS[abbr]?.boards||[]};
   for(const [k,name] of Object.entries(US_STATE_NAMES)) if(l.includes(name.toLowerCase())) return {abbr:k,label:name,boards:STATE_BOARD_HINTS[k]?.boards||[]};
   return null;
@@ -1053,6 +1057,57 @@ function jobLocationText(job){
 function isRemoteJob(job){
   return job.remote===true || (job.job_city||'').toLowerCase()==='remote' || jobLocationText(job).includes('remote');
 }
+function textHasTerm(text,term){
+  const value=(text||'').toLowerCase();
+  if(!term) return false;
+  if(term.length<=3) return new RegExp('(^|[^a-z])'+term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'([^a-z]|$)','i').test(value);
+  return value.includes(term);
+}
+function localEmployerProfile(job){
+  const name=(job.employer_name||'').toLowerCase();
+  return LOCAL_EMPLOYERS.find(e=>{
+    const known=e.name.toLowerCase();
+    return name.includes(known)||known.includes(name)&&name.length>4;
+  })||null;
+}
+function searchLocationProfile(loc){
+  const raw=(loc||'').trim();
+  const state=detectUSState(raw);
+  const first=(raw.split(',')[0]||'').replace(/\b\d{5}(?:-\d{4})?\b/g,'').replace(/\s+\b[A-Za-z]{2}\b$/,'').trim().toLowerCase();
+  const cityTerms=first&&first.length>2?[first]:[];
+  const stateTerms=state?[state.label.toLowerCase(),state.abbr]:[];
+  const regionTerms=isBrunswickArea(raw)?BRUNSWICK_REGION:[''];
+  return {label:raw||'your area',cityTerms,stateTerms,regionTerms};
+}
+function localityFor(job,loc){
+  const profile=searchLocationProfile(loc);
+  const roleText=[job.job_city,job.job_state,job.location,job.job_location].filter(Boolean).join(', ');
+  const companyText=[job.company_location,job.employer_location,job.office_locations,job.company_description].filter(Boolean).join(', ');
+  const description=(job.job_description||'').toLowerCase();
+  const known=localEmployerProfile(job);
+  const cityMatch=profile.cityTerms.some(t=>textHasTerm(roleText,t));
+  const stateMatch=profile.stateTerms.some(t=>textHasTerm(roleText,t));
+  const regionMatch=profile.regionTerms.some(t=>t&&textHasTerm(roleText,t));
+  const companyCityMatch=profile.cityTerms.some(t=>textHasTerm(companyText,t));
+  const companyStateMatch=profile.stateTerms.some(t=>textHasTerm(companyText,t));
+  const companyRegionMatch=profile.regionTerms.some(t=>t&&textHasTerm(companyText,t));
+  const eligibilityMatch=isRemoteJob(job)&&profile.stateTerms.some(t=>description.includes(t));
+  if(!isRemoteJob(job)&&(cityMatch||regionMatch)){
+    return {rank:100,kind:'local',label:'Near search area',note:'Located in or near '+profile.label};
+  }
+  if(isRemoteJob(job)&&(known||companyCityMatch||companyRegionMatch||companyStateMatch)){
+    const place=known?known.city:(job.company_location||profile.label);
+    return {rank:92,kind:'remote-local',label:'Remote · local company',note:'Remote role with a company footprint near '+place};
+  }
+  if(!isRemoteJob(job)&&stateMatch){
+    return {rank:62,kind:'regional',label:'Regional match',note:'Located elsewhere in '+(profile.stateTerms[0]||'the target state')};
+  }
+  if(isRemoteJob(job)&&eligibilityMatch){
+    return {rank:74,kind:'remote-regional',label:'Remote · regional eligibility',note:'Remote role mentions '+(profile.stateTerms[0]||'your region')+' eligibility'};
+  }
+  if(!isRemoteJob(job)) return {rank:38,kind:'local-unknown',label:'Location reported',note:'On-site location returned by the source'};
+  return {rank:0,kind:'remote',label:'Remote',note:'No local company footprint found'};
+}
 function isUSLocationText(text){
   if(!text) return false;
   if(/\b(united states|usa|u\.s\.|us)\b/.test(text)) return true;
@@ -1153,9 +1208,14 @@ const ETYPE_LABELS={
 // ═══════════════════════════════════════════════════════════════════════
 // SCORING — Buchholz filters
 // ═══════════════════════════════════════════════════════════════════════
-function scoreJob(job){
+function scoreJob(job,searchLoc){
   let score=0; const sigs=[];
   const etype=classifyEmployer(job);
+  const locality=localityFor(job,searchLoc);
+
+  if(locality.kind==='local') sigs.push({t:'good',i:'⌖',msg:'Located near your search area'});
+  else if(locality.kind==='remote-local') sigs.push({t:'good',i:'⌖',msg:'Remote role from a company with a local footprint'});
+  else if(locality.kind==='remote-regional') sigs.push({t:'good',i:'⌖',msg:'Remote role includes regional eligibility'});
 
   // Local Brunswick employer gets a stability boost from the registry
   if(etype==='local'){
@@ -1211,7 +1271,7 @@ function scoreJob(job){
   if(found.length>=3){ score+=15; sigs.push({t:'bad',i:'⚠',msg:found.length+' churn phrases in description'}); }
   else if(found.length>=1) sigs.push({t:'warn',i:'△',msg:'"'+found[0]+'"'});
 
-  return {score,risk:score>=50?'high':score>=25?'medium':'low',sigs,etype};
+  return {score,risk:score>=50?'high':score>=25?'medium':'low',sigs,etype,locality};
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1268,6 +1328,7 @@ async function fetchJobicy(q){
     job_min_salary:j.annualSalaryMin||null,job_max_salary:j.annualSalaryMax||null,
     job_salary_period:j.annualSalaryMin?'YEAR':null,
     employer_company_rating:null,job_apply_is_direct:true,
+    company_location:j.companyLocation||j.company_location||'',
     job_publishers:[{name:'Jobicy'}],remote:true,_repost:0,
   }));
 }
@@ -1285,6 +1346,7 @@ async function fetchHimalayas(q){
     job_min_salary:j.minSalary||null,job_max_salary:j.maxSalary||null,
     job_salary_period:(j.minSalary||j.maxSalary)?'YEAR':null,
     employer_company_rating:null,job_apply_is_direct:true,
+    company_location:j.companyLocation||j.company_location||j.company?.location||'',
     job_publishers:[{name:'Himalayas'}],remote:true,_repost:0,
   }));
 }
@@ -1304,6 +1366,7 @@ async function fetchRemoteOK(q){
       job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
       job_salary_period:(j.salary_min||j.salary_max)?'YEAR':null,
       employer_company_rating:null,job_apply_is_direct:true,
+      company_location:j.company_location||j.companyLocation||'',
       job_publishers:[{name:'RemoteOK'}],remote:true,_repost:0,
     }));
 }
@@ -1321,6 +1384,7 @@ async function fetchArbeitnow(q,loc){
     job_employment_type:'FULLTIME',job_min_salary:null,job_max_salary:null,
     job_salary_period:null,
     employer_company_rating:null,job_apply_is_direct:true,
+    company_location:j.company_location||'',
     job_publishers:[{name:'Arbeitnow'}],remote:j.remote||false,_repost:0,
   }));
 }
@@ -1338,6 +1402,7 @@ async function fetchGraphQLJobs(q){
     job_min_salary:j.salaryRange?.min||null,job_max_salary:j.salaryRange?.max||null,
     job_salary_period:j.salaryRange?.period||null,
     employer_company_rating:null,job_apply_is_direct:true,
+    company_location:j.company?.location||'',
     job_publishers:[{name:'GraphQL Jobs'}],remote:!j.cities?.length,_repost:0,
   }));
 }
@@ -1393,6 +1458,7 @@ async function fetchWorker(q,loc,radius){
     job_title:j.title||'',employer_name:j.company||'Unknown',
     job_city:(j.location||'').split(',')[0]?.trim()||(j.remote?'Remote':''),
     job_state:(j.location||'').split(',')[1]?.trim()||'',
+    job_location:j.location||'',company_location:j.company_location||j.employer_location||'',
     job_description:j.description||'',job_apply_link:j.apply_url||'',
     job_employment_type:(j.type||'').toLowerCase().includes('full')?'FULLTIME':'PARTTIME',
     job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
@@ -1483,7 +1549,7 @@ async function fetchViaClaude(sourceKey, q, loc, apiKey, radius){
   };
   const s=sourceMap[sourceKey];
   if(!s||!s.site) return [];
-  return await claudeSearchJobs('Search for "'+q+'" jobs'+radiusPhrase+' in '+cfg.label+' on '+s.site+'. Prioritize listings actually located near the search location, not remote roles unless the user asked for remote.', apiKey, s.label);
+  return await claudeSearchJobs('Search for "'+q+'" jobs'+radiusPhrase+' in '+cfg.label+' on '+s.site+'. Prioritize listings actually located near the search location, not remote roles unless the user asked for remote. When a remote listing belongs to a company with an office, facility, headquarters, or operating footprint near the search location, return that company location so Kindling can keep it as a local-company result.', apiKey, s.label);
 }
 async function fetchStateCommunityBoards(q, loc, apiKey, radius){
   const cfg=getCountryConfig();
@@ -1527,7 +1593,7 @@ async function fetchLocalEmployers(q, loc, apiKey, radius){
   return results.flatMap(r=>r.status==='fulfilled'?r.value:[]);
 }
 async function claudeSearchJobs(prompt, apiKey, sourceLabel, localMeta){
-  const fullPrompt=prompt+'. Return ONLY a JSON array (no markdown, no explanation) of up to 10 job listings with this exact shape:\n[{"title":"","company":"","location":"","salary_min":null,"salary_max":null,"salary_period":null,"description":"","apply_url":"","remote":false}]\nUse null for unknown numbers. Keep description under 200 chars. Return [] if no results.';
+  const fullPrompt=prompt+'. Return ONLY a JSON array (no markdown, no explanation) of up to 10 job listings with this exact shape:\n[{"title":"","company":"","location":"","company_location":"","office_locations":[],"salary_min":null,"salary_max":null,"salary_period":null,"description":"","apply_url":"","remote":false}]\nUse null for unknown numbers and [] when company location data is unavailable. Keep description under 200 chars. Return [] if no results.';
   try{
     const r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
@@ -1551,6 +1617,8 @@ async function claudeSearchJobs(prompt, apiKey, sourceLabel, localMeta){
       employer_name:localMeta?localMeta.name:(j.company||'Unknown'),
       job_city:(j.location||'').split(',')[0]?.trim()||'',
       job_state:(j.location||'').split(',')[1]?.trim()||'',
+      job_location:j.location||'',company_location:localMeta?localMeta.city:(j.company_location||''),
+      office_locations:Array.isArray(j.office_locations)?j.office_locations:[],
       job_description:j.description||'',job_apply_link:j.apply_url||'',
       job_employment_type:'FULLTIME',
       job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
@@ -1602,6 +1670,7 @@ function renderCard(job,cd,idx){
   div.dataset.risk=cd.risk;
   div.dataset.score=cd.score;
   div.dataset.etype=cd.etype||'direct';
+  div.dataset.locality=cd.locality?.rank||0;
   div.dataset.salary=effHr(job)||0;
   div.dataset.rating=job.employer_company_rating||0;
   div.dataset.repost=job._repost||0;
@@ -1611,6 +1680,7 @@ function renderCard(job,cd,idx){
   const hr=effHr(job);
   const loc=[job.job_city,job.job_state].filter(Boolean).join(', ')||'—';
   const scorePct=Math.min(100,cd.score);
+  const locality=cd.locality||{kind:'remote',label:'Remote',note:'No local company footprint found'};
 
   div.innerHTML=
     '<div class="card-rail"></div>'+
@@ -1620,6 +1690,7 @@ function renderCard(job,cd,idx){
           '<div class="card-title">'+esc(job.job_title||'Unknown Role')+'</div>'+
           '<div class="card-company">'+esc(job.employer_name||'Unknown')+'</div>'+
           '<div class="card-location">📍 '+esc(loc)+'</div>'+
+          '<div class="locality-note">⌖ '+esc(locality.note)+'</div>'+
         '</div>'+
         '<span class="card-badge '+cd.risk+'">'+riskLabels[cd.risk]+'</span>'+
       '</div>'+
@@ -1640,6 +1711,7 @@ function renderCard(job,cd,idx){
     '<div class="card-foot">'+
       '<div class="tags">'+
         '<span class="tag etype-'+esc(cd.etype)+'">'+esc(etypeLabel)+'</span>'+
+        '<span class="tag locality">'+esc(locality.label)+'</span>'+
         (job.job_publishers||[{name:job._src||'—'}]).slice(0,1).map(p=>'<span class="tag">'+esc(p.name||p)+'</span>').join('')+
       '</div>'+
       (job.job_apply_link?'<a class="apply-btn" href="'+esc(job.job_apply_link)+'" target="_blank" rel="noopener">Apply →</a>':'')+
@@ -1658,13 +1730,14 @@ function toggleCred(){
   document.querySelectorAll('#results .card').forEach(c=>{ if(c.dataset.etype==='healthcare-credential') c.style.display=hideCred?'none':''; });
 }
 function sortBy(by){
-  const map={risk:'sb-risk',salary:'sb-sal',rating:'sb-rat',repost:'sb-rep'};
-  ['sb-risk','sb-sal','sb-rat','sb-rep'].forEach(id=>document.getElementById(id)?.classList.remove('on'));
+  const map={locality:'sb-local',risk:'sb-risk',salary:'sb-sal',rating:'sb-rat',repost:'sb-rep'};
+  ['sb-local','sb-risk','sb-sal','sb-rat','sb-rep'].forEach(id=>document.getElementById(id)?.classList.remove('on'));
   document.getElementById(map[by])?.classList.add('on');
   const ro={low:0,medium:1,high:2};
   const cards=[...document.querySelectorAll('#results .card')];
   cards.sort((a,b)=>{
-    if(by==='risk')   return ro[a.dataset.risk]-ro[b.dataset.risk];
+    if(by==='locality') return parseFloat(b.dataset.locality)-parseFloat(a.dataset.locality) || ro[a.dataset.risk]-ro[b.dataset.risk];
+    if(by==='risk')   return ro[a.dataset.risk]-ro[b.dataset.risk] || parseFloat(b.dataset.locality)-parseFloat(a.dataset.locality);
     if(by==='salary') return parseFloat(b.dataset.salary)-parseFloat(a.dataset.salary);
     if(by==='rating') return parseFloat(b.dataset.rating)-parseFloat(a.dataset.rating);
     if(by==='repost') return parseFloat(a.dataset.repost)-parseFloat(b.dataset.repost);
@@ -1686,7 +1759,7 @@ async function copyWorker(){
     const code=await r.text();
     await navigator.clipboard.writeText(code);
     btn.textContent='✓ Copied';
-    document.getElementById('copy-status').textContent='Worker v1.7 copied — deploy it, then paste the root workers.dev URL here';
+    document.getElementById('copy-status').textContent='Worker v1.8 copied — deploy it, then paste the root workers.dev URL here';
     setTimeout(()=>{ btn.textContent='📋 Copy Worker Code'; document.getElementById('copy-status').textContent=''; },3000);
   }catch{
     const href=new URL(WORKER_CODE_URL,location.href).href;
@@ -1736,7 +1809,7 @@ async function doSearch(){
     raw.forEach((j,i)=>{ if(!j._id) j._id='j'+i; });
     const jobs=dedup(raw).filter(j=>!isMismatch(j));
     const scores={};
-    jobs.forEach(j=>{ scores[j._id]=scoreJob(j); });
+    jobs.forEach(j=>{ scores[j._id]=scoreJob(j,loc); });
 
     let filtered=jobs;
     if(maxRisk==='low')         filtered=filtered.filter(j=>scores[j._id].risk==='low');
@@ -1750,9 +1823,9 @@ async function doSearch(){
       setStatus(''); btn.disabled=false; btn.textContent='Search 🔥'; return;
     }
 
-    // Sort by risk lowest first
+    // Put jobs near the searched place first, then use churn risk as the tie-breaker.
     const ro={low:0,medium:1,high:2};
-    filtered.sort((a,b)=>ro[scores[a._id].risk]-ro[scores[b._id].risk]);
+    filtered.sort((a,b)=>scores[b._id].locality.rank-scores[a._id].locality.rank || ro[scores[a._id].risk]-ro[scores[b._id].risk]);
 
     filtered.forEach((j,i)=>res.appendChild(renderCard(j,scores[j._id],i)));
 
@@ -1761,6 +1834,7 @@ async function doSearch(){
     const md=filtered.filter(j=>scores[j._id].risk==='medium').length;
     const lo=filtered.filter(j=>scores[j._id].risk==='low').length;
     document.getElementById('sm-total').innerHTML=filtered.length+'<small>results</small>';
+    document.getElementById('sm-local').textContent=filtered.filter(j=>scores[j._id].locality.rank>=74).length;
     document.getElementById('sm-safe').textContent=lo;
     document.getElementById('sm-med').textContent=md;
     document.getElementById('sm-high').textContent=hi;
@@ -1787,7 +1861,7 @@ async function doSearch(){
       });
     }
 
-    setStatus(filtered.length+' results — churn risk ranked lowest first.');
+    setStatus(filtered.length+' results — local fit first, then churn risk.');
     setTimeout(()=>setStatus(''),4000);
   }catch(err){
     setStatus('Error: '+err.message);

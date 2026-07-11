@@ -1,0 +1,27 @@
+name: Deploy Kindling Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - kindling-worker.js
+      - wrangler.toml
+      - .github/workflows/deploy-worker.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
