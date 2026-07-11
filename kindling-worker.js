@@ -297,7 +297,7 @@ async function fetchJooble(q, location, keys, radius = '') {
     company: j.company || 'Unknown',
     location: j.location || location || '',
     remote: false,
-    type: (j.type || '').toLowerCase().includes('part') ? 'parttime' : 'fulltime',
+    type: String(j.type || '').toLowerCase().includes('part') ? 'parttime' : 'fulltime',
     salary_min: null, // Jooble returns salary as a free-text string, not min/max
     salary_max: null,
     salary_period: null,
@@ -437,7 +437,7 @@ async function fetchRemoteOK(q) {
   return list
     .filter(j => !ql || (j.position || '').toLowerCase().includes(ql) ||
                  (j.description || '').toLowerCase().includes(ql) ||
-                 (j.tags || []).some(t => (t || '').toLowerCase().includes(ql)))
+                 (j.tags || []).some(t => String(t || '').toLowerCase().includes(ql)))
     .slice(0, 40)
     .map(j => ({
       id: 'rok_' + j.id,
