@@ -45,9 +45,14 @@ function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: CORS });
 }
 
+function normalizeQuery(value) {
+  const query = (value || '').trim();
+  return query === '*' ? '' : query;
+}
+
 function parseQuery(url) {
   return {
-    q: url.searchParams.get('q') || '',
+    q: normalizeQuery(url.searchParams.get('q') || ''),
     location: url.searchParams.get('location') || '',
     country: (url.searchParams.get('country') || 'us').toLowerCase(),
     radius: url.searchParams.get('radius') || '',
