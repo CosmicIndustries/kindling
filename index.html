@@ -211,6 +211,8 @@ body::before{
 .sb-dot.danger{background:var(--danger);box-shadow:0 0 6px var(--danger)}
 .summary-sources{display:flex;flex-wrap:wrap;gap:.35rem;justify-content:flex-end;max-width:260px}
 .src-pill{font-family:var(--f-mono);font-size:.65rem;padding:.15rem .5rem;background:rgba(255,255,255,.04);border-radius:12px;color:var(--stone);text-transform:uppercase;letter-spacing:.05em}
+.coverage-note{max-width:1180px;margin:.55rem auto 0;color:var(--stone);font-size:.78rem;line-height:1.45;display:none}
+.coverage-note.show{display:block}
 
 /* ── SORT BAR ──────────────────────────────────────────────────── */
 .sort-bar{
@@ -630,6 +632,7 @@ body::before{
         <div class="summary-sources" id="sm-sources"></div>
         <div id="sm-diag"></div>
       </div>
+      <div class="coverage-note" id="coverage-note"></div>
 
       <div class="sort-bar" id="sort-bar">
         <span class="sort-label">Sort:</span>
@@ -1052,10 +1055,16 @@ function setStatus(msg,spin){
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function jobLocationText(job){
-  return [job.job_city,job.job_state,job.location].filter(Boolean).join(', ').toLowerCase();
+  return [job.job_city,job.job_state,job.location,job.job_location].filter(Boolean).join(', ').toLowerCase();
 }
 function isRemoteJob(job){
   return job.remote===true || (job.job_city||'').toLowerCase()==='remote' || jobLocationText(job).includes('remote');
+}
+function cardLocationText(job){
+  const raw=[job.job_city,job.job_state].filter(Boolean).join(', ');
+  if(!isRemoteJob(job)) return raw||'—';
+  if(/united states|usa|worldwide|remote/i.test(raw)) return 'Remote · US eligible';
+  return raw?'Remote · '+raw:'Remote';
 }
 function textHasTerm(text,term){
   const value=(text||'').toLowerCase();
@@ -1344,7 +1353,7 @@ async function fetchHimalayas(q){
     job_city:'Remote',job_state:'',job_description:j.excerpt||j.description||'',
     job_apply_link:j.applicationLink||j.url||'',job_employment_type:'FULLTIME',
     job_min_salary:j.minSalary||null,job_max_salary:j.maxSalary||null,
-    job_salary_period:(j.minSalary||j.maxSalary)?'YEAR':null,
+    job_salary_period:(j.minSalary||j.maxSalary)?((j.minSalary||j.maxSalary)<1000?'HOUR':'YEAR'):null,
     employer_company_rating:null,job_apply_is_direct:true,
     company_location:j.companyLocation||j.company_location||j.company?.location||'',
     job_publishers:[{name:'Himalayas'}],remote:true,_repost:0,
@@ -1364,7 +1373,7 @@ async function fetchRemoteOK(q){
       job_city:'Remote',job_state:'',job_description:j.description||'',
       job_apply_link:j.url||'https://remoteok.com',job_employment_type:'FULLTIME',
       job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
-      job_salary_period:(j.salary_min||j.salary_max)?'YEAR':null,
+      job_salary_period:(j.salary_min||j.salary_max)?((j.salary_min||j.salary_max)<1000?'HOUR':'YEAR'):null,
       employer_company_rating:null,job_apply_is_direct:true,
       company_location:j.company_location||j.companyLocation||'',
       job_publishers:[{name:'RemoteOK'}],remote:true,_repost:0,
@@ -1462,7 +1471,7 @@ async function fetchWorker(q,loc,radius){
     job_description:j.description||'',job_apply_link:j.apply_url||'',
     job_employment_type:(j.type||'').toLowerCase().includes('full')?'FULLTIME':'PARTTIME',
     job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
-    job_salary_period:j.salary_min?(j.salary_period||'YEAR'):null,
+    job_salary_period:j.salary_min?(j.salary_period|| (j.salary_min<1000?'HOUR':'YEAR')):null,
     employer_company_rating:null,job_apply_is_direct:true,
     job_publishers:[{name:j.source||'Worker'}],remote:j.remote||false,_repost:0,
   }));
@@ -1678,7 +1687,7 @@ function renderCard(job,cd,idx){
   const riskLabels={low:'Stable',medium:'Caution',high:'High Churn'};
   const etypeLabel=ETYPE_LABELS[cd.etype]||'Unknown';
   const hr=effHr(job);
-  const loc=[job.job_city,job.job_state].filter(Boolean).join(', ')||'—';
+  const loc=cardLocationText(job);
   const scorePct=Math.min(100,cd.score);
   const locality=cd.locality||{kind:'remote',label:'Remote',note:'No local company footprint found'};
 
@@ -1789,6 +1798,8 @@ async function doSearch(){
   res.innerHTML='';
   document.getElementById('summary').classList.remove('show');
   document.getElementById('sort-bar').classList.remove('show');
+  const coverage=document.getElementById('coverage-note');
+  if(coverage){ coverage.textContent=''; coverage.classList.remove('show'); }
 
   try{
     const plan=buildSourcePlan(q,loc,type,remote,radius);
@@ -1834,7 +1845,8 @@ async function doSearch(){
     const md=filtered.filter(j=>scores[j._id].risk==='medium').length;
     const lo=filtered.filter(j=>scores[j._id].risk==='low').length;
     document.getElementById('sm-total').innerHTML=filtered.length+'<small>results</small>';
-    document.getElementById('sm-local').textContent=filtered.filter(j=>scores[j._id].locality.rank>=74).length;
+    const localCount=filtered.filter(j=>scores[j._id].locality.rank>=74).length;
+    document.getElementById('sm-local').textContent=localCount;
     document.getElementById('sm-safe').textContent=lo;
     document.getElementById('sm-med').textContent=md;
     document.getElementById('sm-high').textContent=hi;
@@ -1843,6 +1855,14 @@ async function doSearch(){
     document.getElementById('sm-diag').innerHTML=renderSourceDiag(planResult.failures);
     document.getElementById('summary').classList.add('show');
     document.getElementById('sort-bar').classList.add('show');
+    if(coverage){
+      coverage.textContent=localCount===0&&remote!=='remote'
+        ? 'Remote coverage only for this search. Add Adzuna keys, Claude, or a configured Worker for jobs and company footprints near '+loc+'.'
+        : localCount<filtered.length
+          ? 'Local matches are ranked first; '+(filtered.length-localCount)+' remote or unverified results remain in the mix.'
+          : 'Local matches are ranked first for '+loc+'.';
+      coverage.classList.add('show');
+    }
 
     if(hideCred){ document.querySelectorAll('#results .card').forEach(c=>{ if(c.dataset.etype==='healthcare-credential') c.style.display='none'; }); }
 
