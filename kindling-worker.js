@@ -117,8 +117,12 @@ async function runSourcePlan(plan) {
   settled.forEach((result, i) => {
     const key = plan[i].key;
     if (result.status === 'fulfilled') {
-      sources[key] = result.value.length;
-      jobs.push(...result.value);
+      const normalized = result.value.map(job => ({
+        ...job,
+        benefits: Array.isArray(job.benefits) && job.benefits.length ? job.benefits : benefitsFromJob(job),
+      }));
+      sources[key] = normalized.length;
+      jobs.push(...normalized);
       errors[key] = null;
     } else {
       sources[key] = 0;
@@ -136,6 +140,24 @@ function dedupJobs(jobs) {
     seen.add(key);
     return true;
   });
+}
+
+const BENEFIT_HINTS = [
+  ['health insurance', 'Health'], ['medical insurance', 'Health'], ['medical coverage', 'Health'],
+  ['dental', 'Dental'], ['vision', 'Vision'], ['401k', '401(k)'], ['401(k)', '401(k)'],
+  ['retirement', 'Retirement'], ['pension', 'Pension'], ['paid time off', 'PTO'], ['pto', 'PTO'],
+  ['paid vacation', 'Vacation'], ['paid holiday', 'Paid holidays'], ['sick leave', 'Sick leave'],
+  ['life insurance', 'Life insurance'], ['disability insurance', 'Disability'], ['tuition', 'Tuition'],
+  ['union', 'Union'], ['stock options', 'Equity'], ['equity', 'Equity'], ['employer match', '401(k) match'],
+];
+
+function benefitsFromJob(job) {
+  const raw = [job.description, ...(Array.isArray(job.tags) ? job.tags : [])].join(' ').toLowerCase();
+  const found = [];
+  BENEFIT_HINTS.forEach(([term, label]) => {
+    if (raw.includes(term) && !found.includes(label)) found.push(label);
+  });
+  return found;
 }
 
 function filterJobs(jobs, query) {
