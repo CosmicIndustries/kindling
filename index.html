@@ -1351,22 +1351,38 @@ const BENEFIT_TERMS=[
   ['life insurance','Life insurance'],['disability insurance','Disability'],['tuition','Tuition'],['education assistance','Tuition'],
   ['union','Union'],['stock options','Equity'],['equity','Equity'],['employer match','401(k) match'],['esop','ESOP']
 ];
+function parseTextSalary(raw){
+  const text=String(raw||'').replace(/\u2013/g,'-');
+  const n='(\\d{2,}(?:,\\d{3})*(?:\\.\\d+)?)';
+  const unit='(hour|hr|hourly|month|mo|monthly|year|yr|annual|annually)';
+  const patterns=[
+    new RegExp('(?:\\$|USD\\s*)\\s*'+n+'(?:\\s*(?:-|to)\\s*(?:\\$|USD\\s*)?\\s*'+n+')?\\s*(?:\\/\\s*)?(?:(?:a|per)\\s+)?'+unit+'\\b','i'),
+    new RegExp(n+'(?:\\s*(?:-|to)\\s*'+n+')?\\s*(?:\\/\\s*)?(?:(?:a|per)\\s+)?'+unit+'\\b','i'),
+  ];
+  for(const pattern of patterns){
+    const match=text.match(pattern);
+    if(match){
+      const value=Number(match[1].replace(/,/g,''));
+      const unitText=match[match.length-1].toLowerCase();
+      const period=/hour|hr/.test(unitText)?'HOUR':/month|mo/.test(unitText)?'MONTH':'YEAR';
+      return {value,period};
+    }
+  }
+  return null;
+}
 function salaryFloorHr(job){
   let value=Number(job.job_min_salary)||Number(job.job_max_salary)||0;
   let period=String(job.job_salary_period||'').toUpperCase();
-  const description=String(job.job_description||'');
-  const salaryLike=/\$\s*\d|salary|per hour|hourly|\/hr|per month|monthly|per year|annual/i.test(description)?description:'';
-  const raw=[job.job_salary,job.salary,job.tags,job.job_tags,salaryLike].flatMap(v=>Array.isArray(v)?v:[v]).filter(Boolean).join(' ');
-  if(!value&&raw){
-    const match=raw.match(/(?:\$|USD\s*)?(\d{2,}(?:,\d{3})*(?:\.\d+)?)/i);
-    if(match){
-      value=Number(match[1].replace(/,/g,''));
-      period=/hour|hourly|\/hr|per hour/i.test(raw)?'HOUR':/month|monthly|\/mo|per month/i.test(raw)?'MONTH':'YEAR';
-    }
+  if(value){
+    if(!period) period=value<1000?'HOUR':'YEAR';
+    return period==='HOUR'?value:period==='MONTH'?(value*12)/2080:value/2080;
   }
-  if(!value) return null;
-  if(!period) period=value<1000?'HOUR':'YEAR';
-  return period==='HOUR'?value:period==='MONTH'?(value*12)/2080:value/2080;
+  const sources=[job.job_salary,job.salary,job.tags,job.job_tags,job.job_description];
+  for(const source of sources){
+    const parsed=parseTextSalary(Array.isArray(source)?source.join(' '):source);
+    if(parsed) return parsed.period==='HOUR'?parsed.value:parsed.period==='MONTH'?(parsed.value*12)/2080:parsed.value/2080;
+  }
+  return null;
 }
 function benefitProfile(job){
   const raw=[job.job_benefits,job.job_highlights,job.job_description,job.tags,job.job_tags]
