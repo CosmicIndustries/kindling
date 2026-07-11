@@ -829,6 +829,8 @@ const LOCAL_EMPLOYERS=[
 
 const LOCAL_EMPLOYER_NAMES=LOCAL_EMPLOYERS.map(e=>e.name.toLowerCase());
 const BRUNSWICK_REGION=['brunswick','glynn','st. simons','sea island','jekyll','coastal georgia','golden isles','glynco'];
+const BRUNSWICK_CLOSE_TERMS=['brunswick','glynn','glynco','st. simons','st simons','sea island','jekyll','darien','kingsland','st. marys','st marys','woodbine','nahunta','jesup'];
+const BRUNSWICK_WIDER_TERMS=['savannah','hinesville','pooler','richmond hill','waycross'];
 
 function isBrunswickArea(loc){
   const l=(loc||'').toLowerCase();
@@ -1090,7 +1092,7 @@ function searchLocationProfile(loc){
 }
 function localityFor(job,loc){
   const profile=searchLocationProfile(loc);
-  const roleText=[job.job_city,job.job_state,job.location,job.job_location].filter(Boolean).join(', ');
+  const roleText=[job.job_city,job.job_state,job.location,job.job_location,!isRemoteJob(job)?job.job_description:''].filter(Boolean).join(', ');
   const companyText=[job.company_location,job.employer_location,job.office_locations,job.company_description].filter(Boolean).join(', ');
   const description=(job.job_description||'').toLowerCase();
   const known=localEmployerProfile(job);
@@ -1100,9 +1102,14 @@ function localityFor(job,loc){
   const companyCityMatch=profile.cityTerms.some(t=>textHasTerm(companyText,t));
   const companyStateMatch=profile.stateTerms.some(t=>textHasTerm(companyText,t));
   const companyRegionMatch=profile.regionTerms.some(t=>t&&textHasTerm(companyText,t));
+  const closeAreaMatch=isBrunswickArea(loc)&&BRUNSWICK_CLOSE_TERMS.some(t=>textHasTerm(roleText,t));
+  const widerAreaMatch=isBrunswickArea(loc)&&BRUNSWICK_WIDER_TERMS.some(t=>textHasTerm(roleText,t));
   const eligibilityMatch=isRemoteJob(job)&&profile.stateTerms.some(t=>description.includes(t));
-  if(!isRemoteJob(job)&&(cityMatch||regionMatch)){
+  if(!isRemoteJob(job)&&(cityMatch||regionMatch||closeAreaMatch)){
     return {rank:100,kind:'local',label:'Near search area',note:'Located in or near '+profile.label};
+  }
+  if(!isRemoteJob(job)&&widerAreaMatch){
+    return {rank:82,kind:'regional',label:'Coastal regional match',note:'Located in the wider Coastal Georgia search area'};
   }
   if(isRemoteJob(job)&&(known||companyCityMatch||companyRegionMatch||companyStateMatch)){
     const place=known?known.city:(job.company_location||profile.label);
@@ -1140,10 +1147,9 @@ function matchesSearchRadius(job,loc,radius){
   const state=detectUSState(loc);
   const miles=parseInt(radius,10)||9999;
   if(isBrunswickArea(loc)){
-    const close=['brunswick','glynn','glynco','st. simons','st simons','sea island','jekyll','darien','kingsland','st. marys','st marys','woodbine','nahunta','jesup','waycross'];
-    const wider=['savannah','hinesville','pooler','richmond hill'];
-    if(close.some(k=>text.includes(k))) return true;
-    if(miles>=75 && wider.some(k=>text.includes(k))) return true;
+    if(BRUNSWICK_CLOSE_TERMS.some(k=>text.includes(k))) return true;
+    if(miles>=75 && BRUNSWICK_WIDER_TERMS.some(k=>text.includes(k))) return true;
+    return false;
   }
   if(state){
     const re=new RegExp('(^|[^a-z])'+state.abbr+'([^a-z]|$)','i');
@@ -1513,6 +1519,11 @@ async function runSourcePlan(plan){
 }
 function renderSourceDiag(planFailures){
   const lines=[];
+  if(planFailures){
+    Object.entries(planFailures).forEach(([label,error])=>{
+      if(label!=='Worker'&&error) lines.push('⚠ '+esc(label)+' failed: '+esc(error));
+    });
+  }
   if(planFailures&&planFailures['Worker']){
     lines.push('⚠ Worker request failed entirely: '+esc(planFailures['Worker'])+' (check the Worker URL is correct and the Worker is deployed)');
   }
@@ -1580,6 +1591,10 @@ async function fetchStateCommunityBoards(q, loc, apiKey, radius){
     {
       label:'Community Boards',
       prompt:'Search local community and public workforce boards for "'+q+'" jobs'+radiusPhrase+'. Prioritize '+localTargets+' Exclude Craigslist, Facebook groups, Discord, login-only boards, and stale repost mirrors. Include only current postings with direct apply URLs.'
+    },
+    {
+      label:'Local Job Discovery',
+      prompt:'Find current "'+q+'" job listings within '+(radius||'50')+' '+unit+' of '+loc+'. Use Lensa, The Big Jobsite, and direct employer career pages as discovery sources, but prefer a direct employer apply URL when available. Keep only postings whose job location is explicitly in Brunswick, Glynn County, Coastal Georgia, Savannah, or another city inside the requested radius. Do not return nationwide or generic United States listings.'
     }
   ];
   const results=await Promise.allSettled(prompts.map(p=>claudeSearchJobs(p.prompt,apiKey,p.label)));
