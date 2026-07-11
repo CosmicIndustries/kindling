@@ -146,9 +146,20 @@ function filterJobs(jobs, query) {
 }
 
 function matchesQuery(job, q) {
-  return (job.title || '').toLowerCase().includes(q) ||
-    (job.description || '').toLowerCase().includes(q) ||
-    (job.tags || []).some(t => (t || '').toLowerCase().includes(q));
+  const haystack = [job.title || '', job.description || '', ...(job.tags || [])].join(' ').toLowerCase();
+  const variants = [q];
+  const groups = [
+    ['it support', 'information technology support', 'technical support', 'desktop support', 'help desk', 'computer support', 'field technician', 'computer technician'],
+    ['field tech', 'field technician', 'computer field technician', 'onsite technician'],
+    ['network tech', 'network technician', 'network support'],
+    ['cyber', 'cybersecurity', 'security analyst'],
+  ];
+  groups.forEach(group => {
+    if (group.some(term => q.includes(term))) variants.push(...group);
+  });
+  if (variants.some(term => haystack.includes(term))) return true;
+  const words = q.split(/\s+/).filter(word => word.length > 2);
+  return words.length > 1 && words.every(word => haystack.includes(word));
 }
 
 // -- Source fetchers ---------------------------------------------------------
