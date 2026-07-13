@@ -51,11 +51,13 @@ function normalizeQuery(value) {
 }
 
 function parseQuery(url) {
+  const daysParam = url.searchParams.get('days');
   return {
     q: normalizeQuery(url.searchParams.get('q') || ''),
     location: url.searchParams.get('location') || '',
     country: (url.searchParams.get('country') || 'us').toLowerCase(),
     radius: url.searchParams.get('radius') || '',
+    days: daysParam === null ? 30 : Math.max(0, Number(daysParam) || 0),
     remote: url.searchParams.get('remote') || '',
     type: url.searchParams.get('type') || '',
     keys: {
@@ -168,8 +170,25 @@ function filterJobs(jobs, query) {
     if (q && !matchesQuery(j, q)) return false;
     if (remoteOnly && !j.remote) return false;
     if (localOnly && j.remote) return false;
+    if (query.days && !isFreshEnough(j, query.days)) return false;
     return true;
   });
+}
+
+function postedDate(job) {
+  let value = job.posted_at || job.job_posted_at || job.postedAt || job.date_posted || job.created || job.updated || null;
+  if (!value) return null;
+  if (typeof value === 'number' || /^\d+$/.test(String(value))) {
+    const n = Number(value);
+    value = n < 100000000000 ? n * 1000 : n;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isFreshEnough(job, days) {
+  const date = postedDate(job);
+  return !date || (Date.now() - date.getTime()) / 86400000 <= days;
 }
 
 function matchesQuery(job, q) {

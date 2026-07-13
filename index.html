@@ -626,6 +626,15 @@ body::before{
                 <option value="required">Benefits required</option>
               </select>
             </div>
+            <div class="field-group">
+              <label>Freshness</label>
+              <select id="s-freshness" onchange="updateFilterSummary()">
+                <option value="30" selected>Past 30 days</option>
+                <option value="7">Past 7 days</option>
+                <option value="90">Past 90 days</option>
+                <option value="0">Any age</option>
+              </select>
+            </div>
           </div>
 
           <div class="presets">
@@ -1055,6 +1064,7 @@ function updateFilterSummary(){
   const et=document.getElementById('s-etype').value;
   const floor=document.getElementById('s-salary-floor')?.value;
   const benefits=document.getElementById('s-benefits')?.value;
+  const freshness=document.getElementById('s-freshness')?.value;
   const rad=document.getElementById('s-radius')?.value;
   const c=document.getElementById('s-country')?.value||'us';
   const unit=['us','gb'].includes(c)?'mi':'km';
@@ -1067,6 +1077,8 @@ function updateFilterSummary(){
   if(floor) p.push('$'+floor+'/hr floor');
   if(benefits==='prefer') p.push('Benefits preferred');
   if(benefits==='required') p.push('Benefits required');
+  if(freshness==='0') p.push('Any age');
+  else if(freshness) p.push('Past '+freshness+' days');
   const el=document.getElementById('filter-summary');
   if(el) el.textContent=p.join(' · ');
 }
@@ -1079,6 +1091,34 @@ function setSearch(q){
 function setStatus(msg,spin){
   const el=document.getElementById('status');
   el.innerHTML = msg ? '<div class="status-inner">'+(spin?'<div class="spin"></div>':'')+'<span>'+esc(msg)+'</span></div>' : '';
+}
+
+function postedDate(job){
+  let value=job.posted_at||job.job_posted_at||job.postedAt||job.date_posted||job.created||job.updated||null;
+  if(!value) return null;
+  if(typeof value==='number' || /^\d+$/.test(String(value))){
+    const n=Number(value);
+    value=n<100000000000?n*1000:n;
+  }
+  const date=new Date(value);
+  return Number.isNaN(date.getTime())?null:date;
+}
+function freshnessAge(job){
+  const date=postedDate(job);
+  return date?Math.max(0,(Date.now()-date.getTime())/86400000):null;
+}
+function isFreshEnough(job,days){
+  const age=freshnessAge(job);
+  return age===null||age<=days;
+}
+function postedLabel(job){
+  const age=freshnessAge(job);
+  if(age===null) return 'Posted date unknown';
+  if(age<1) return 'Posted today';
+  if(age<2) return 'Posted yesterday';
+  if(age<30) return 'Posted '+Math.floor(age)+'d ago';
+  if(age<365) return 'Posted '+Math.floor(age/30)+'mo ago';
+  return 'Posted '+Math.floor(age/365)+'y ago';
 }
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -1434,6 +1474,7 @@ async function fetchJobicy(q){
     job_salary_period:j.annualSalaryMin?'YEAR':null,
     employer_company_rating:null,job_apply_is_direct:true,
     company_location:j.companyLocation||j.company_location||'',
+    posted_at:j.pubDate||j.publishedAt||null,
     job_publishers:[{name:'Jobicy'}],remote:true,_repost:0,
   }));
 }
@@ -1452,6 +1493,7 @@ async function fetchHimalayas(q){
     job_salary_period:(j.minSalary||j.maxSalary)?((j.minSalary||j.maxSalary)<1000?'HOUR':'YEAR'):null,
     employer_company_rating:null,job_apply_is_direct:true,
     company_location:j.companyLocation||j.company_location||j.company?.location||'',
+    posted_at:j.pubDate||j.publishedAt||null,
     job_publishers:[{name:'Himalayas'}],remote:true,_repost:0,
   }));
 }
@@ -1472,6 +1514,7 @@ async function fetchRemoteOK(q){
       job_salary_period:(j.salary_min||j.salary_max)?((j.salary_min||j.salary_max)<1000?'HOUR':'YEAR'):null,
       employer_company_rating:null,job_apply_is_direct:true,
       company_location:j.company_location||j.companyLocation||'',
+      posted_at:j.date||null,
       job_publishers:[{name:'RemoteOK'}],remote:true,_repost:0,
     }));
 }
@@ -1490,6 +1533,7 @@ async function fetchArbeitnow(q,loc){
     job_salary_period:null,
     employer_company_rating:null,job_apply_is_direct:true,
     company_location:j.company_location||'',
+    posted_at:j.created_at?new Date(j.created_at*1000).toISOString():null,
     job_publishers:[{name:'Arbeitnow'}],remote:j.remote||false,_repost:0,
   }));
 }
@@ -1508,6 +1552,7 @@ async function fetchGraphQLJobs(q){
     job_salary_period:j.salaryRange?.period||null,
     employer_company_rating:null,job_apply_is_direct:true,
     company_location:j.company?.location||'',
+    posted_at:j.postedAt||null,
     job_publishers:[{name:'GraphQL Jobs'}],remote:!j.cities?.length,_repost:0,
   }));
 }
@@ -1546,6 +1591,8 @@ async function fetchWorker(q,loc,radius){
   const remote=document.getElementById('s-remote')?.value||'';
   if(type) p.set('type',type);
   if(remote) p.set('remote',remote);
+  const freshness=document.getElementById('s-freshness')?.value||'30';
+  if(freshness) p.set('days',freshness);
   p.set('country',cfg.adzuna||'unsupported');
   if(K('k-adz-id')) p.set('adzuna_app_id',K('k-adz-id'));
   if(K('k-adz-key')) p.set('adzuna_app_key',K('k-adz-key'));
@@ -1575,6 +1622,7 @@ async function fetchWorker(q,loc,radius){
       job_salary_period:j.salary_min?(j.salary_period|| (j.salary_min<1000?'HOUR':'YEAR')):null,
       job_salary:j.salary||j.salary_text||'',job_tags:Array.isArray(j.tags)?j.tags:[],
       job_benefits:Array.isArray(j.benefits)?j.benefits:[],
+      posted_at:j.posted_at||j.postedAt||null,
       employer_company_rating:null,job_apply_is_direct:true,
       job_publishers:[{name:source}],remote:j.remote===true,_repost:0,
     };
@@ -1718,7 +1766,7 @@ async function fetchLocalEmployers(q, loc, apiKey, radius){
   return results.flatMap(r=>r.status==='fulfilled'?r.value:[]);
 }
 async function claudeSearchJobs(prompt, apiKey, sourceLabel, localMeta){
-  const fullPrompt=prompt+'. Return ONLY a JSON array (no markdown, no explanation) of up to 10 job listings with this exact shape:\n[{"title":"","company":"","location":"","company_location":"","office_locations":[],"salary_min":null,"salary_max":null,"salary_period":null,"benefits":[],"description":"","apply_url":"","remote":false}]\nUse null for unknown numbers, [] for unknown arrays, and include only benefits explicitly stated by the listing. Keep description under 200 chars. Return [] if no results.';
+  const fullPrompt=prompt+'. Return ONLY a JSON array (no markdown, no explanation) of up to 10 job listings with this exact shape:\n[{"title":"","company":"","location":"","company_location":"","office_locations":[],"salary_min":null,"salary_max":null,"salary_period":null,"benefits":[],"posted_at":null,"description":"","apply_url":"","remote":false}]\nUse null for unknown numbers or dates, [] for unknown arrays, and include only benefits explicitly stated by the listing. Keep description under 200 chars. Return [] if no results.';
   try{
     const r=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
@@ -1749,6 +1797,7 @@ async function claudeSearchJobs(prompt, apiKey, sourceLabel, localMeta){
       job_min_salary:j.salary_min||null,job_max_salary:j.salary_max||null,
       job_salary_period:j.salary_period||null,
       job_benefits:Array.isArray(j.benefits)?j.benefits:[],
+      posted_at:j.posted_at||null,
       employer_company_rating:localMeta?localMeta.rating:null,
       job_apply_is_direct:true,
       job_publishers:[{name:sourceLabel}],
@@ -1819,6 +1868,7 @@ function renderCard(job,cd,idx){
           '<div class="card-company">'+esc(job.employer_name||'Unknown')+'</div>'+
           '<div class="card-location">📍 '+esc(loc)+'</div>'+
           '<div class="locality-note">⌖ '+esc(locality.note)+'</div>'+
+          '<div class="locality-note">◷ '+esc(postedLabel(job))+'</div>'+
         '</div>'+
         '<span class="card-badge '+cd.risk+'">'+riskLabels[cd.risk]+'</span>'+
       '</div>'+
@@ -1911,6 +1961,7 @@ async function doSearch(){
   const etypeFilter=document.getElementById('s-etype').value;
   const salaryFloor=Number(document.getElementById('s-salary-floor')?.value||0);
   const benefitsPreference=document.getElementById('s-benefits')?.value||'';
+  const freshnessDays=Number(document.getElementById('s-freshness')?.value||30);
   if(!q&&rawQ!=='*'){ alert('Enter a job title, use * for all jobs, or click a quick-search preset.'); return; }
 
   const a=K('ka');
@@ -1935,6 +1986,7 @@ async function doSearch(){
     if(remote==='remote') raw=raw.filter(j=>isRemoteJob(j));
     if(remote==='onsite'||remote==='local') raw=raw.filter(j=>!isRemoteJob(j));
     raw=applyGeoFilters(raw,loc,radius);
+    if(freshnessDays) raw=raw.filter(j=>isFreshEnough(j,freshnessDays));
 
     if(!raw.length){
       res.innerHTML='<div class="empty"><div class="empty-icon">🕯</div><h3>No listings found.</h3><p>'+esc(emptyResultsMessage())+'</p>'+renderSourceDiag(planResult.failures)+'</div>';
@@ -2007,7 +2059,7 @@ async function doSearch(){
       });
     }
 
-    setStatus(filtered.length+' results — local fit first, then pay floor, benefits, and churn risk.');
+    setStatus(filtered.length+' results — fresh within '+freshnessDays+' days; local fit, pay floor, benefits, then churn risk.');
     setTimeout(()=>setStatus(''),4000);
   }catch(err){
     setStatus('Error: '+err.message);
